@@ -1,0 +1,573 @@
+JMP main
+JMP isr
+
+vsync: DW 0
+keypress: DW 0
+
+;=====================================================================
+; Interrupt Service Routine
+;=====================================================================
+
+isr:
+    PUSH A
+    IN 1
+    CMP A, 4
+    JNE isr_keyboard
+    MOV [vsync], 1
+    MOV A, 4
+    OUT 2
+    JMP iret
+
+isr_keyboard:
+    IN 5
+    AND A, 1
+    CMP A, 1
+    JNE isr_key_clear
+    MOV [keypress], 1
+    
+isr_key_clear:
+    IN 6
+    MOV A, 1 
+    OUT 2
+    JMP iret
+iret:
+    POP A
+    IRET
+    
+;=====================================================================
+; Global Variables
+;=====================================================================
+
+sprites:
+    DB "\x00\x00\x07\xE0\x08\x10\x10\x80\x16\x68\x14\x48\x10\x08\x10\x08"
+    DB "\x10\x08\x10\x08\x15\xA8\x0A\x50\x00\x00\x00\x00\x00\x00\x00\x00"
+    
+    DB "\x00\x00\x00\x00\x0F\xF0\x07\xE0\x09\x90\x09\x90\x0F\xF0\x0F\xF0"
+    DB "\x0F\xF0\x0F\xF0\x0A\x50\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    
+    DB "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x20\x00\x00\x00\x00"
+    DB "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    
+    DB "\x01\x80\x01\x80\x3F\xFC\x1F\xF8\x0F\xF0\x07\xE0\x03\xC0\x01\x80"
+    DB "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+    
+	DB "\x00\x00\x0E\x70\x1F\xF8\x3F\xFC\x3F\xFC\x3F\xFC\x1F\xF8\x1F\xF8"
+	DB "\x0F\xF0\x07\xE0\x03\xC0\x01\x80\x00\x00\x00\x00\x00\x00\x00\x00"
+  
+ghost_colors:	;colors for ghost
+	DW 0xF000	
+    DW 0xF1FF
+    DW 0x001F
+  
+position:		;position of sprite
+	DB 0x70
+   	DB 0xC0
+    
+;positions of enemies
+flying_object_position1:
+	DW 0x1155
+flying_object_position2:
+	DW 0x4400
+flying_object_position3:
+	DW 0xAA00
+flying_object_position4:
+	DW 0xDD55
+
+key_already_pressed:	;last pressed key
+    DW 0
+    
+score:					;score used for output
+	DW 0x30
+
+actual_score:			;score used for counting
+	DW 0
+    
+pickup:					;pickup adress
+   	DW 0
+    
+lose:					;lose string
+	DB "  YOU LOSE."
+    DB 0
+    
+win:					;win string
+	DB "  YOU WIN!!!"
+    DB 0
+
+color1: 				;color var
+	DW 0xE900
+
+color2:					;color var2
+	DW 0xF300
+;=======================================================================
+; Loading Tiles
+;=======================================================================
+
+load_vram_tiles:
+    MOV C, sprites
+    MOV D, 0x9E00 		;custom adress start
+load_vram_tiles_loop:
+    CMP D, 0x9EE0 		;custom adress finish
+    JE load_vram_tiles_return
+    MOV A, D      	;set adress
+    OUT 8        
+    MOV A, [C]		;move sprites to A register
+    OUT 9     
+    ADD C, 2      	;next data 
+    ADD D, 2      	;next adreess
+    JMP load_vram_tiles_loop
+load_vram_tiles_return:
+    RET
+    
+;=======================================================================
+; Wait for Next Frame
+;=======================================================================
+
+;used for vsync
+wait_next_frame:
+    PUSH A			;push stack
+wait_next_frame_loop:
+    MOV A, [vsync]	;get vsync value
+    CMP A, 0		;compare
+    JE wait_next_frame_loop		;if 0 continue loop
+    MOV [vsync], 0	;set vsync as 0
+    POP A			;pop stack
+    RET
+    
+;========================================================================
+; Process User Input And Delay
+;========================================================================
+
+;checking each input
+process_user_input:
+    MOV A, [keypress]
+    CMP A, 0
+    JE no_keypress  ;if no key is pressed go back
+    IN 6
+    CMP A, 0x0077	;'W' key
+    JE inputW
+    CMP A, 0x0073	;'S' key
+    JE inputS
+    CMP A, 0x0061	;'A' key
+    JE inputA
+    CMP A, 0x0064	;'D' key
+    JE inputD
+
+;key_already_pressed is used to check what was pressed last
+;this is used so the program wont stop if a key that is not
+;supported gets pressed
+
+;if the program gets no valid input it goes here to continue
+;movement
+already_pressed:
+    MOV A, [key_already_pressed]
+    CMP A, 0
+    JE no_keypress  ;No key was pressed
+    CMP A, 0x0077  ;'W' key
+    JE inputW
+    CMP A, 0x0073  ;'S' key
+    JE inputS
+    CMP A, 0x0061  ;'A' key
+    JE inputA
+    CMP A, 0x0064  ;'D' key
+    JE inputD
+    RET
+     
+no_keypress:
+    MOV [key_already_pressed], 0	;Clear if no key is pressed
+    RET
+
+delay:
+    MOV C, 100		;counter to delay the program/movement
+delay_loop:
+    DEC C			;C--
+    CMP C, 0		;stop the delay
+    JNZ delay_loop
+    RET
+
+;=============================================================================
+; Input Handling
+;=============================================================================
+
+;with each input we move it to the last pressed to keep track
+inputA:
+    PUSH A
+    MOV [key_already_pressed], 0x0061  ;'A' key
+    MOV A, [position]		;get position
+    SUBB AH, 2				;move for 2 pixels
+    MOV [position], A		;update
+    POP A
+    CALL delay    ;get delay
+    RET
+
+inputD:
+    PUSH A
+    MOV [key_already_pressed], 0x0064  ;'D' key
+    MOV A, [position]		;get position
+    ADDB AH, 2				;move for 2 pixels
+    MOV [position], A		;update
+    POP A
+    CALL delay    ;get delay
+    RET
+
+;same for the other two
+inputS:
+    PUSH A
+    MOV [key_already_pressed], 0x0073  ;'S' key
+    MOV A, [position]
+    ADDB AL, 2
+    MOV [position], A
+    POP A
+    CALL delay    
+    RET
+
+inputW:
+    PUSH A
+    MOV [key_already_pressed], 0x0077  ;'W' key
+    MOV A, [position]
+    SUBB AL, 2 
+    MOV [position], A
+    POP A
+    CALL delay    
+    RET
+
+
+
+;============================================================================
+; Draw Sprite, Background And Pickups
+;============================================================================
+
+draw_sprite:
+    MOV B, ghost_colors        ;setting colors
+    MOV D, 0xA306              ;sprite 1 adress
+    MOV C, 3                   ;counter
+draw_loop:
+    CMP C, 0                ;ending loop
+    JE draw_return
+    MOV A, D                ;moving the adress to A to OUT 8
+    OUT 8                   
+    MOV A, [B]              ;getting colors to OUT 9
+    OUT 9                   
+    ADD D, 2                ;next position
+    MOV A, D                ;getting next positon to print
+    OUT 8                   
+    MOV A, [position]       ;Getting global position
+    OUT 9                   
+    ADD B, 2                ;next sprite info
+    ADD D, 2                ;next sprite adress
+    DEC C                   ;update counter
+    JMP draw_loop
+draw_return:
+    RET
+
+draw_pickup:
+	IN 10 				;getting random
+    CMPB AH, 0x15		;setting parameters for spawning area
+    JB draw_pickup
+    CMPB AH, 0xE5 
+    JA draw_pickup
+    CMPB AL, 0x15
+    JB draw_pickup
+    CMPB AL, 0xE5 
+    JA draw_pickup
+    MOV [pickup], A		;getting positon to global var
+	MOV A, 0xA322		;last sprite
+    OUT 8
+    MOVB AH, 0xF4		;adress for sprite
+    MOVB AL, [color1]	;setting color
+    OUT 9
+	MOV A, 0xA324		;x-position
+    OUT 8
+    MOV A, [pickup]		;setting position
+    OUT 9
+    OUT 8
+	RET
+    
+background:
+    MOV A, 0xA300		;coloring background
+    OUT 8
+    MOV A, 23
+    OUT 9
+    RET
+
+;================================================================================
+; Drawing Enemies
+;================================================================================
+
+;added comments for 1 of them because they have the same
+;functionality
+flying_object1:
+	MOV A, 0xA312			;first sprite
+    OUT 8
+    MOV A, [color2]			;color
+    OUT 9
+	MOV A, 0xA314			;x-position is needed
+    OUT 8
+    MOV A, [flying_object_position1]	;old position
+    OUT 9
+    MOV A, [flying_object_position1]
+    ADDB AL, 6							;moving 6 pixels down
+    MOV [flying_object_position1], A	;update position
+   	RET
+    
+flying_object2:
+	MOV A, 0xA316
+    OUT 8
+    MOV A, [color2]
+    OUT 9
+	MOV A, 0xA318
+    OUT 8
+    MOV A, [flying_object_position2]
+    OUT 9
+    MOV A, [flying_object_position2]
+    ADDB AL, 6
+    MOV [flying_object_position2], A
+   	RET
+    
+flying_object3:
+	MOV A, 0xA31A
+    OUT 8
+    MOV A, [color2]
+    OUT 9
+	MOV A, 0xA31C
+    OUT 8
+    MOV A, [flying_object_position3]
+    OUT 9
+    MOV A, [flying_object_position3]
+    ADDB AL, 6
+    MOV [flying_object_position3], A
+   	RET
+    
+flying_object4:
+	MOV A, 0xA31E
+    OUT 8
+    MOV A, [color2]
+    OUT 9
+	MOV A, 0xA320
+    OUT 8
+    MOV A, [flying_object_position4]
+    OUT 9
+    MOV A, [flying_object_position4]
+    ADDB AL, 6
+    MOV [flying_object_position4], A
+   	RET
+
+;========================================================================
+; Check Collision
+;========================================================================
+
+;I added comments for 1 of them because they have the same 
+;functionality
+check_collision1:
+	MOV B, [position]
+    ADDB BH, 8
+    ADDB BL, 8
+    MOV A, [flying_object_position1]
+    ADDB AL, 11
+    CMPB BH, AH 
+    JB return1
+    CMPB BL, AL
+    JNB return1
+    ADDB AH, 16
+    CMPB BH, AH 
+    JNB return1
+    SUBB AL, 16
+    CMPB BL, AL
+    JB return1
+    JMP break1
+return1:
+	RET
+    
+    check_collision2:
+	MOV B, [position]
+    ADDB BH, 8
+    ADDB BL, 8
+    MOV A, [flying_object_position2]
+    ADDB AL, 11
+    CMPB BH, AH 
+    JB return2
+    CMPB BL, AL
+    JNB return2
+    ADDB AH, 16
+    CMPB BH, AH 
+    JNB return2
+    SUBB AL, 16
+    CMPB BL, AL
+    JB return2
+    JMP break1
+return2:
+	RET
+    
+    check_collision3:
+	MOV B, [position]	;get sprite position
+    ADDB BH, 8			;get center pixel of sprite
+    ADDB BL, 8			;
+    MOV A, [flying_object_position3]	;enemy position
+    ADDB AL, 11			;checking algorithm
+    CMPB BH, AH 
+    JB return3
+    CMPB BL, AL
+    JNB return3
+    ADDB AH, 16
+    CMPB BH, AH 
+    JNB return1
+    SUBB AL, 16
+    CMPB BL, AL
+    JB return3
+    JMP break1			;break is lose screen
+return3:
+	RET
+    
+    check_collision4:
+	MOV B, [position]	
+    ADDB BH, 8			
+    ADDB BL, 8			
+    MOV A, [flying_object_position4]	
+    ADDB AL, 11			
+    CMPB BH, AH 
+    JB return4
+    CMPB BL, AL
+    JNB return4
+    ADDB AH, 16
+    CMPB BH, AH 
+    JNB return4
+    SUBB AL, 16
+    CMPB BL, AL
+    JB return4
+    JMP break1			
+return4:
+	RET
+    
+collision_pickups:
+    MOV A, [pickup]		;get pickup position
+    MOV B, [position]	;sprite position
+    ADDB BL, 8			;center of sprite
+    ADDB BH, 8			;	
+    ADDB AL, 16			;check for collision
+    CMPB BH, AH 
+    JB returnn
+    CMPB BL, AL
+    JNB returnn
+    ADDB AH, 16
+    CMPB BH, AH 
+    JNB returnn
+    SUBB AL, 20
+    CMPB BL, AL
+    JB returnn
+    MOV A, [score]		;if collision with pickup change score
+    INC A				;
+    MOV [score], A		;
+	MOV [0x1000], A		;update score output
+    CALL draw_pickup	;change position of pickup
+    MOV A, [actual_score]	;winning conditions
+    INC A
+    MOV [actual_score], A
+    CMP A, 3
+    JE win_game
+returnn:
+	RET
+
+;==========================================================================
+; Losing String
+;==========================================================================
+
+;making lose screen by changing the sprites color
+break1:
+	MOV C, 255
+  	MOV [color2], C
+    MOV C, 0x0000
+    MOV [color1], C
+    CALL draw_pickup	;calling functions to change color
+    CALL flying_object1
+    CALL flying_object2
+    CALL flying_object3
+    CALL flying_object4
+    MOV A, 0xA300 	;changing background color
+    OUT 8
+    MOV A, 255
+    OUT 9
+	MOV C, lose
+    MOV D, 0x0804
+loop_string:
+	MOV A, D
+    OUT 8
+    MOVB AH, [C]
+    CMPB AH, 0
+    JE br
+    MOVB AL, 233
+    OUT 9
+    INC C
+    ADD D, 2
+	JMP loop_string
+br:
+	HLT
+    
+;==========================================================================
+; Winning String
+;==========================================================================
+
+;making win screen by changing the sprites color
+win_game:
+	MOV C, 0xFFFF
+  	MOV [color2], C
+    MOV C, 0xFFFF
+    MOV [color1], C
+    CALL draw_pickup	 ;recalling function to change color
+    CALL flying_object1	
+    CALL flying_object2
+    CALL flying_object3
+    CALL flying_object4
+ 	MOV A, 0xA300 ;changing background color
+    OUT 8
+    MOV A, 255
+    OUT 9
+	MOV C, win
+    MOV D, 0x0804
+loop_string2:	;loading you win string
+	MOV A, D
+    OUT 8
+    MOVB AH, [C]
+    CMPB AH, 0
+    JE br2
+    MOVB AL, 28
+    OUT 9
+    INC C
+    ADD D, 2
+	JMP loop_string2
+br2:
+	HLT		;ending game
+
+;===================================================================================
+; Main Program
+;===================================================================================
+
+main:
+    MOV SP, 0x0FFF
+    MOV A, 1
+    OUT 7
+    
+    ;calling functions that are the most important
+    CALL load_vram_tiles
+    CALL background
+    CALL draw_sprite
+    CALL draw_pickup
+
+    MOV A, 5
+    OUT 0
+    STI
+
+;the game loop
+game_loop:
+    CALL process_user_input
+    CALL draw_sprite
+    CALL flying_object1
+    CALL flying_object2
+    CALL flying_object3
+    CALL flying_object4
+    CALL check_collision1
+    CALL check_collision2
+    CALL check_collision3
+    CALL check_collision4
+    CALL collision_pickups
+    CALL wait_next_frame
+    JMP game_loop
+    HLT
